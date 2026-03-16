@@ -19,6 +19,7 @@ import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
 import { captureCapabilities, setCachedPlugins } from './agent-sdk-capabilities';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
+// Auto-approval is now handled at the CodePilot level, not via SDK bypassPermissions
 import { resolveForClaudeCode, toClaudeCodeEnv } from './provider-resolver';
 import { findClaudeBinary, findGitBash, getExpandedPath, invalidateClaudePathCache } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
@@ -315,13 +316,25 @@ export async function generateTextViaSdk(params: {
   const queryOptions: Options = {
     cwd: os.homedir(),
     abortController,
-    permissionMode: 'bypassPermissions',
-    allowDangerouslySkipPermissions: true,
+    permissionMode: 'acceptEdits',
     env: sanitizeEnv(sdkEnv),
     settingSources: resolved.settingSources as Options['settingSources'],
     systemPrompt: params.system,
     maxTurns: 1,
   };
+
+  // Add auto-approval handler for this simple query
+  const globalAutoApprove = getSetting('dangerously_skip_permissions') === 'true';
+  if (globalAutoApprove) {
+    queryOptions.canUseTool = async (toolName, _input, opts) => {
+      console.log(`[claude-client] Auto-approved ${toolName} (auto-approval enabled)`);
+      return {
+        behavior: 'allow',
+        updatedInput: _input,
+        ...(opts.suggestions ? { updatedPermissions: opts.suggestions } : {}),
+      };
+    };
+  }
 
   if (params.model) {
     queryOptions.model = params.model;
@@ -443,17 +456,15 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           console.warn('[claude-client] No API key found: no active provider, no legacy settings, and no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN in environment');
         }
 
-        // Check if dangerously_skip_permissions is enabled globally or per-session
-        const globalSkip = getSetting('dangerously_skip_permissions') === 'true';
-        const skipPermissions = globalSkip || !!sessionBypassPermissions;
+        // Check if auto-approval is enabled globally or per-session
+        const globalAutoApprove = getSetting('dangerously_skip_permissions') === 'true';
+        const shouldAutoApprove = globalAutoApprove || !!sessionBypassPermissions;
 
         const queryOptions: Options = {
           cwd: workingDirectory || os.homedir(),
           abortController,
           includePartialMessages: true,
-          permissionMode: skipPermissions
-            ? 'bypassPermissions'
-            : ((permissionMode as Options['permissionMode']) || 'acceptEdits'),
+          permissionMode: (permissionMode as Options['permissionMode']) || 'acceptEdits',
           env: sanitizeEnv(sdkEnv),
           // Load settings so the SDK behaves like the CLI (tool permissions,
           // CLAUDE.md, etc.). When an active provider is configured in
@@ -462,10 +473,6 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           // etc.) that would conflict with the provider's configuration.
           settingSources: resolved.settingSources as Options['settingSources'],
         };
-
-        if (skipPermissions) {
-          queryOptions.allowDangerouslySkipPermissions = true;
-        }
 
         // Find claude binary for packaged app where PATH is limited.
         // On Windows, npm installs Claude CLI as a .cmd wrapper which cannot
@@ -562,9 +569,19 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           queryOptions.resume = sdkSessionId;
         }
 
-        // Permission handler: sends SSE event and waits for user response
+        // Permission handler: auto-approve if enabled, or sends SSE event and waits for user response
         queryOptions.canUseTool = async (toolName, input, opts) => {
           const permissionRequestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+          // If auto-approval is enabled, approve immediately without user interaction
+          if (shouldAutoApprove) {
+            console.log(`[claude-client] Auto-approved ${toolName} (auto-approval enabled)`);
+            return {
+              behavior: 'allow',
+              updatedInput: input,
+              ...(opts.suggestions ? { updatedPermissions: opts.suggestions } : {}),
+            };
+          }
 
           const permEvent: PermissionRequestEvent = {
             permissionRequestId,
@@ -856,6 +873,9 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                         is_error: block.is_error || false,
                       }),
                     }));
+                    if (block.is_error) {
+                      console.warn(`[claude-client] Tool ${block.tool_use_id} failed: ${resultContent}`);
+                    }
 
                     // Deferred TodoWrite sync: only emit task_update after successful execution
                     if (!block.is_error && pendingTodoWrites.has(block.tool_use_id)) {

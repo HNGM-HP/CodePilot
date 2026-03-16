@@ -902,6 +902,7 @@ export interface ToolUseInfo {
 export interface ToolResultInfo {
   tool_use_id: string;
   content: string;
+  is_error?: boolean;
 }
 
 export type StreamPhase = 'active' | 'completed' | 'error' | 'stopped';
