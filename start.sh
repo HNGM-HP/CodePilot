@@ -48,32 +48,59 @@ do_start() {
 
 # 停止服务
 do_stop() {
-  # 先尝试停止 PID 文件中的进程
+  local stopped=0
+  
+  # 1. 先尝试停止 PID 文件中的进程及其子进程
   if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
     if kill -0 "$PID" 2>/dev/null; then
-      kill "$PID" 2>/dev/null
-      sleep 1
+      # 杀掉整个进程组（包括子进程）
+      kill -TERM -"$PID" 2>/dev/null || kill -TERM "$PID" 2>/dev/null
+      sleep 2
       # 如果进程还在，强制杀掉
       if kill -0 "$PID" 2>/dev/null; then
-        kill -9 "$PID" 2>/dev/null
+        kill -9 -"$PID" 2>/dev/null || kill -9 "$PID" 2>/dev/null
       fi
       echo "已停止 (PID: $PID)"
-    else
-      echo "进程不存在"
+      stopped=1
     fi
     rm -f "$PID_FILE"
-  else
+  fi
+  
+  # 2. 强制清理占用端口 3000 的所有进程
+  local port_pids=$(lsof -ti:3000 2>/dev/null)
+  if [ -n "$port_pids" ]; then
+    echo "清理端口 3000 残留进程: $port_pids"
+    echo "$port_pids" | xargs kill -9 2>/dev/null
+    sleep 1
+    stopped=1
+  fi
+  
+  # 3. 清理所有 node/next 相关进程（当前目录下启动的）
+  local node_pids=$(pgrep -f "node.*$APP_DIR" 2>/dev/null)
+  if [ -n "$node_pids" ]; then
+    echo "清理 Node 进程: $node_pids"
+    echo "$node_pids" | xargs kill -9 2>/dev/null
+    stopped=1
+  fi
+  
+  # 4. 再次检查端口
+  if lsof -i:3000 >/dev/null 2>&1; then
+    echo "仍有进程占用端口 3000，强制清理..."
+    fuser -k -9 3000/tcp 2>/dev/null
+    sleep 1
+  fi
+  
+  if [ "$stopped" -eq 0 ]; then
     echo "服务未运行"
   fi
   
-  # 强制清理占用端口 3000 的进程
-  if ss -tlnp 2>/dev/null | grep -q ":3000 "; then
-    echo "清理残留进程..."
-    fuser -k 3000/tcp 2>/dev/null
-    sleep 1
-    # 再次强制清理
-    lsof -ti:3000 | xargs -r kill -9 2>/dev/null
+  # 最终确认
+  if lsof -i:3000 >/dev/null 2>&1; then
+    echo "警告: 端口 3000 仍被占用"
+    lsof -i:3000
+  else
+    echo "端口 3000 已释放"
   fi
 }
 
