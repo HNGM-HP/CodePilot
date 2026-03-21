@@ -23,6 +23,7 @@ import {
   getActiveProvider,
   getSetting,
   getModelsForProvider,
+  getProviderOptions,
 } from './db';
 
 // ── Resolution result ───────────────────────────────────────────
@@ -461,7 +462,13 @@ function buildResolution(
       process.env.ANTHROPIC_AUTH_TOKEN ||
       getSetting('anthropic_auth_token')
     );
-    const model = opts.model || opts.sessionModel || getSetting('default_model') || undefined;
+    // Read user-configured global default model — only use it if it's an env-provider model
+    const globalDefaultModel = getSetting('global_default_model') || undefined;
+    const globalDefaultProvider = getSetting('global_default_model_provider') || undefined;
+    // Only apply global default when it belongs to the env provider (or no provider is specified)
+    const applicableGlobalDefault = (globalDefaultModel && (!globalDefaultProvider || globalDefaultProvider === 'env'))
+      ? globalDefaultModel : undefined;
+    const model = opts.model || opts.sessionModel || applicableGlobalDefault || getSetting('default_model') || undefined;
 
     // Env mode uses short aliases (sonnet/opus/haiku) in the UI.
     // Map them to full Anthropic model IDs so toAiSdkConfig can resolve correctly.
@@ -499,6 +506,17 @@ function buildResolution(
   const envOverrides = safeParseJson(provider.env_overrides_json || provider.extra_env);
   let roleModels = safeParseJson(provider.role_models_json) as RoleModels;
 
+  // Fall back to catalog preset's defaultRoleModels when DB has no role mappings.
+  // This ensures sdkProxyOnly providers (MiniMax, Xiaomi MiMo, etc.) get correct
+  // ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL env vars even when role_models_json
+  // was saved as '{}' by the preset connect dialog.
+  if (!roleModels.default && !roleModels.sonnet) {
+    const preset = findPresetForLegacy(provider.base_url, provider.provider_type, protocol);
+    if (preset?.defaultRoleModels) {
+      roleModels = { ...preset.defaultRoleModels, ...roleModels };
+    }
+  }
+
   // Get available models: DB provider_models take priority, then catalog defaults
   let availableModels = getDefaultModelsForProvider(protocol, provider.base_url);
   try {
@@ -517,12 +535,22 @@ function buildResolution(
     }
   } catch { /* provider_models table may not exist in old DBs */ }
 
+  // Read per-provider options
+  const providerOpts = getProviderOptions(provider.id);
+
+  // Read global default model — only use it if it belongs to THIS provider
+  const globalDefaultModel = getSetting('global_default_model') || undefined;
+  const globalDefaultProvider = getSetting('global_default_model_provider') || undefined;
+  const applicableGlobalDefault = (globalDefaultModel && globalDefaultProvider === provider.id)
+    ? globalDefaultModel : undefined;
+
   // Resolve model — priority:
   //   1. Explicit request model (opts.model)
   //   2. Session's stored model (opts.sessionModel)
-  //   3. Provider's roleModels.default (configured per-provider default, e.g. "ark-code-latest")
-  //   4. Global default_model setting
-  const requestedModel = opts.model || opts.sessionModel || roleModels.default || getSetting('default_model') || undefined;
+  //   3. Global default model (only if it belongs to this provider)
+  //   4. Provider's roleModels.default (preset default, e.g. "ark-code-latest")
+  //   5. Global default_model setting (legacy)
+  const requestedModel = opts.model || opts.sessionModel || applicableGlobalDefault || roleModels.default || getSetting('default_model') || undefined;
   let model = requestedModel;
   let upstreamModel: string | undefined;
   let modelDisplayName: string | undefined;
@@ -591,8 +619,9 @@ function inferProtocolFromProvider(provider: ApiProvider): Protocol {
 }
 
 function inferAuthStyleFromProvider(provider: ApiProvider): AuthStyle {
-  // Check preset match first
-  const preset = findPresetForLegacy(provider.base_url, provider.provider_type);
+  // Check preset match first — pass protocol to avoid cross-protocol fuzzy mismatches
+  const protocol = inferProtocolFromProvider(provider);
+  const preset = findPresetForLegacy(provider.base_url, provider.provider_type, protocol);
   if (preset) return preset.authStyle;
 
   return inferAuthStyleFromLegacy(provider.provider_type, provider.extra_env);
