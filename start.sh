@@ -14,9 +14,14 @@ show_menu() {
   echo "========================================"
   echo ""
   
-  # 检查状态
+  # 检查状态（使用 ss 更可靠）
+  local port_info=$(ss -tlnp 2>/dev/null | grep ":3000 ")
+  local port_pid=$(echo "$port_info" | sed -n 's/.*pid=\([0-9]*\).*/\1/p')
+  
   if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
     echo "  当前状态: 运行中 (PID: $(cat "$PID_FILE"))"
+  elif [ -n "$port_pid" ]; then
+    echo "  当前状态: 端口被占用 (PID: $port_pid) - 异常"
   else
     echo "  当前状态: 未运行"
   fi
@@ -35,15 +40,44 @@ show_menu() {
 
 # 启动服务
 do_start() {
+  # 先检查端口是否已被占用
+  local port_info=$(ss -tlnp 2>/dev/null | grep ":3000 ")
+  if [ -n "$port_info" ]; then
+    local port_pid=$(echo "$port_info" | sed -n 's/.*pid=\([0-9]*\).*/\1/p')
+    echo "端口 3000 已被占用 (PID: $port_pid)"
+    echo "请先运行 ./start.sh stop 停止服务"
+    return 1
+  fi
+  
   if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
     echo "服务已在运行 (PID: $(cat "$PID_FILE"))"
-    return
+    return 0
   fi
   
   cd "$APP_DIR" || exit 1
+  
+  # 启动服务并等待端口监听
   nohup npm run start > "$LOG_FILE" 2>&1 &
-  echo $! > "$PID_FILE"
-  echo "启动成功，PID: $!"
+  local npm_pid=$!
+  echo $npm_pid > "$PID_FILE"
+  
+  echo "正在启动服务..."
+  
+  # 等待端口监听（最多等待 30 秒，使用 ss 检测）
+  local waited=0
+  while [ $waited -lt 30 ]; do
+    sleep 1
+    waited=$((waited + 1))
+    local check_info=$(ss -tlnp 2>/dev/null | grep ":3000 ")
+    if [ -n "$check_info" ]; then
+      local server_pid=$(echo "$check_info" | sed -n 's/.*pid=\([0-9]*\).*/\1/p')
+      echo "启动成功 (PID: $server_pid)"
+      return 0
+    fi
+  done
+  
+  echo "启动超时，请检查日志: $LOG_FILE"
+  return 1
 }
 
 # 停止服务
@@ -67,28 +101,24 @@ do_stop() {
     rm -f "$PID_FILE"
   fi
   
-  # 2. 强制清理占用端口 3000 的所有进程
-  local port_pids=$(lsof -ti:3000 2>/dev/null)
+  # 2. 强制清理占用端口 3000 的所有进程（使用 ss 更可靠）
+  local port_pids=$(ss -tlnp 2>/dev/null | grep ":3000 " | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | sort -u)
   if [ -n "$port_pids" ]; then
     echo "清理端口 3000 残留进程: $port_pids"
-    echo "$port_pids" | xargs kill -9 2>/dev/null
+    for pid in $port_pids; do
+      kill -9 "$pid" 2>/dev/null && echo "  已杀掉 PID: $pid"
+    done
     sleep 1
     stopped=1
   fi
   
-  # 3. 清理所有 node/next 相关进程（当前目录下启动的）
-  local node_pids=$(pgrep -f "node.*$APP_DIR" 2>/dev/null)
-  if [ -n "$node_pids" ]; then
-    echo "清理 Node 进程: $node_pids"
-    echo "$node_pids" | xargs kill -9 2>/dev/null
-    stopped=1
-  fi
-  
-  # 4. 再次检查端口
-  if lsof -i:3000 >/dev/null 2>&1; then
-    echo "仍有进程占用端口 3000，强制清理..."
-    fuser -k -9 3000/tcp 2>/dev/null
+  # 3. 备用方式：使用 lsof
+  local lsof_pids=$(lsof -ti:3000 2>/dev/null)
+  if [ -n "$lsof_pids" ]; then
+    echo "清理残留进程 (lsof): $lsof_pids"
+    echo "$lsof_pids" | xargs kill -9 2>/dev/null
     sleep 1
+    stopped=1
   fi
   
   if [ "$stopped" -eq 0 ]; then
@@ -96,9 +126,9 @@ do_stop() {
   fi
   
   # 最终确认
-  if lsof -i:3000 >/dev/null 2>&1; then
+  if ss -tlnp 2>/dev/null | grep -q ":3000 "; then
     echo "警告: 端口 3000 仍被占用"
-    lsof -i:3000
+    ss -tlnp | grep ":3000 "
   else
     echo "端口 3000 已释放"
   fi
@@ -106,10 +136,39 @@ do_stop() {
 
 # 查看状态
 do_status() {
+  local has_pid=0
+  local has_port=0
+  
+  # 检查 PID 文件
   if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-    echo "运行中 (PID: $(cat "$PID_FILE"))"
+    has_pid=1
+    echo "PID 文件: 运行中 (PID: $(cat "$PID_FILE"))"
   else
-    echo "未运行"
+    echo "PID 文件: 未运行"
+    [ -f "$PID_FILE" ] && rm -f "$PID_FILE"
+  fi
+  
+  # 检查端口占用（使用 ss 更可靠）
+  local port_info=$(ss -tlnp 2>/dev/null | grep ":3000 ")
+  if [ -n "$port_info" ]; then
+    has_port=1
+    local port_pid=$(echo "$port_info" | sed -n 's/.*pid=\([0-9]*\).*/\1/p')
+    echo "端口 3000: 被占用 (PID: $port_pid)"
+  else
+    echo "端口 3000: 空闲"
+  fi
+  
+  # 综合状态
+  echo ""
+  if [ "$has_pid" -eq 1 ] && [ "$has_port" -eq 1 ]; then
+    echo ">>> 服务正常运行"
+  elif [ "$has_pid" -eq 0 ] && [ "$has_port" -eq 1 ]; then
+    echo ">>> 异常: 端口被占用但 PID 文件不存在"
+    echo ">>> 建议: 运行 ./start.sh stop 清理残留进程"
+  elif [ "$has_pid" -eq 1 ] && [ "$has_port" -eq 0 ]; then
+    echo ">>> 异常: PID 存在但端口未监听"
+  else
+    echo ">>> 服务未运行"
   fi
 }
 
