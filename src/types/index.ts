@@ -540,6 +540,8 @@ export interface MCPServerConfig {
   type?: 'stdio' | 'sse' | 'http';
   url?: string;
   headers?: Record<string, string>;
+  /** Persistent enable/disable. undefined or true = enabled; false = disabled. */
+  enabled?: boolean;
 }
 
 export interface MCPConfig {
@@ -1084,4 +1086,28 @@ export interface GitWorktree {
   branch: string;
   bare: boolean;
   dirty: boolean;
+}
+
+// ==========================================
+// WeChat Bridge Types
+// ==========================================
+
+export interface WeixinAccount {
+  accountId: string;
+  userId: string;
+  baseUrl: string;
+  cdnBaseUrl: string;
+  token: string;
+  name: string;
+  enabled: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WeixinContextTokenRecord {
+  accountId: string;
+  peerUserId: string;
+  contextToken: string;
+  updatedAt: string;
 }
