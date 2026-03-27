@@ -104,6 +104,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // Listen for mobile close events
+  useEffect(() => {
+    const handler = () => setChatListOpenRaw(false);
+    window.addEventListener("chatlist-close", handler);
+    return () => window.removeEventListener("chatlist-close", handler);
+  }, []);
+
   // Panel width state with localStorage persistence
   const [chatListWidth, setChatListWidth] = useState(240);
 
