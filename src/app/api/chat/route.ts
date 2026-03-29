@@ -6,7 +6,8 @@ import { notifySessionStart, notifySessionComplete, notifySessionError } from '@
 import { extractCompletion } from '@/lib/onboarding-completion';
 import { loadCodePilotMcpServers } from '@/lib/mcp-loader';
 import { assembleContext } from '@/lib/context-assembler';
-import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment, ClaudeStreamOptions } from '@/types';
+import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment, ClaudeStreamOptions, MediaBlock } from '@/types';
+import { saveMediaToLibrary } from '@/lib/media-saver';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -166,6 +167,10 @@ export async function POST(request: NextRequest) {
       content: m.content,
     }));
 
+    // Detect actual image agent mode by checking for the specific design agent prompt,
+    // not just any systemPromptAppend (which could come from CLI badges or skills).
+    const isImageAgentMode = !!systemPromptAppend && systemPromptAppend.includes('image-gen-request');
+
     // Unified context assembly — extracts workspace, CLI tools, widget prompt
     const assembled = await assembleContext({
       session,
@@ -173,7 +178,7 @@ export async function POST(request: NextRequest) {
       userPrompt: content,
       systemPromptAppend,
       conversationHistory: historyMsgs,
-      imageAgentMode: !!systemPromptAppend,
+      imageAgentMode: isImageAgentMode,
     });
     const finalSystemPrompt = assembled.systemPrompt;
     const generativeUIEnabled = assembled.generativeUIEnabled;
@@ -202,7 +207,7 @@ export async function POST(request: NextRequest) {
       abortController,
       permissionMode,
       files: fileAttachments,
-      imageAgentMode: !!systemPromptAppend,
+      imageAgentMode: isImageAgentMode,
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
       providerId: effectiveProviderId || undefined,
@@ -309,11 +314,37 @@ async function collectStreamResponse(
             } else if (event.type === 'tool_result') {
               try {
                 const resultData = JSON.parse(event.data);
-                const newBlock = {
+
+                // Save media blocks to library, replace base64 with local paths
+                let savedMedia: MediaBlock[] | undefined;
+                if (Array.isArray(resultData.media) && resultData.media.length > 0) {
+                  savedMedia = [];
+                  for (const block of resultData.media as MediaBlock[]) {
+                    if (block.data) {
+                      try {
+                        const saved = saveMediaToLibrary(block, { sessionId });
+                        savedMedia.push({
+                          type: block.type,
+                          mimeType: block.mimeType,
+                          localPath: saved.localPath,
+                          mediaId: saved.mediaId,
+                        });
+                      } catch (saveErr) {
+                        console.warn('[chat/route] Failed to save media block:', saveErr);
+                        savedMedia.push(block); // Keep original if save fails
+                      }
+                    } else {
+                      savedMedia.push(block);
+                    }
+                  }
+                }
+
+                const newBlock: MessageContentBlock = {
                   type: 'tool_result' as const,
                   tool_use_id: resultData.tool_use_id,
                   content: resultData.content,
                   is_error: resultData.is_error || false,
+                  ...(savedMedia && savedMedia.length > 0 ? { media: savedMedia } : {}),
                 };
                 // Last-wins: if same tool_use_id already exists, replace it
                 // (user handler's result may be more complete than PostToolUse's)

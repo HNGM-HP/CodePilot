@@ -2,16 +2,29 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import Link from "next/link";
+import { motion, AnimatePresence } from "motion/react";
 import {
   MagnifyingGlass,
   FileArrowDown,
   Plus,
   FolderOpen,
+  FolderPlus,
+  Lightning,
+  Plug,
+  Terminal,
+  Image,
+  WifiHigh,
+  Gear,
   X,
 } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -20,10 +33,11 @@ import {
 import { usePanel } from "@/hooks/usePanel";
 import { useSplit } from "@/hooks/useSplit";
 import { useTranslation } from "@/hooks/useTranslation";
+import type { TranslationKey } from "@/i18n";
 import { useNativeFolderPicker } from "@/hooks/useNativeFolderPicker";
 import { showToast } from '@/hooks/useToast';
 import { ConnectionStatus } from "./ConnectionStatus";
-import { ImportSessionDialog } from "./ImportSessionDialog";
+// ImportSessionDialog moved to Settings page
 import { SessionListItem, SplitGroupSection } from "./SessionListItem";
 import { ProjectGroupHeader } from "./ProjectGroupHeader";
 import { FolderPicker } from "@/components/chat/FolderPicker";
@@ -40,10 +54,12 @@ import type { ChatSession } from "@/types";
 interface ChatListPanelProps {
   open: boolean;
   width?: number;
+  hasUpdate?: boolean;
+  readyToInstall?: boolean;
 }
 
 
-export function ChatListPanel({ open, width }: ChatListPanelProps) {
+export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatListPanelProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, workingDirectory } = usePanel();
@@ -54,7 +70,10 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [expandedSessionGroups, setExpandedSessionGroups] = useState<Set<string>>(new Set());
+  const SESSION_TRUNCATE_LIMIT = 10;
+  // importDialogOpen removed — Import CLI moved to Settings
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
     () => loadCollapsedProjects()
@@ -366,24 +385,52 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     return result;
   }, [sessions, searchQuery, isSplitActive, splitSessionIds]);
 
-  const projectGroups = useMemo(
-    () => groupSessionsByProject(filteredSessions),
-    [filteredSessions]
-  );
+  const projectGroups = useMemo(() => {
+    const groups = groupSessionsByProject(filteredSessions);
+    // Pin assistant workspace project to top
+    if (workspacePath) {
+      const wsIdx = groups.findIndex(g => g.workingDirectory === workspacePath);
+      if (wsIdx > 0) {
+        const [wsGroup] = groups.splice(wsIdx, 1);
+        groups.unshift(wsGroup);
+      }
+    }
+    return groups;
+  }, [filteredSessions, workspacePath]);
 
-  // On first use, auto-collapse all project groups except the most recent one
+  // Auto-collapse: only expand the project with the most recent session activity.
+  // Runs on first use AND whenever the project list changes (new projects added).
   useEffect(() => {
     if (projectGroups.length <= 1) return;
-    if (localStorage.getItem(COLLAPSED_INITIALIZED_KEY)) return;
+    // Find the project with the latest session (highest latestUpdatedAt), ignoring pin order
+    const sorted = [...projectGroups].sort((a, b) => b.latestUpdatedAt - a.latestUpdatedAt);
+    const mostRecentWd = sorted[0]?.workingDirectory;
     const toCollapse = new Set(
-      projectGroups.slice(1).map((g) => g.workingDirectory)
+      projectGroups
+        .filter(g => g.workingDirectory !== mostRecentWd)
+        .map(g => g.workingDirectory)
     );
-    setCollapsedProjects(toCollapse);
-    saveCollapsedProjects(toCollapse);
-    localStorage.setItem(COLLAPSED_INITIALIZED_KEY, "1");
-  }, [projectGroups]);
+    // Only update if collapsed set actually changed (avoid infinite loop)
+    const currentKeys = [...collapsedProjects].sort().join(',');
+    const newKeys = [...toCollapse].sort().join(',');
+    // v2: re-initialize with improved logic (pin-aware)
+    const initKey = COLLAPSED_INITIALIZED_KEY + '-v2';
+    if (currentKeys !== newKeys && !localStorage.getItem(initKey)) {
+      setCollapsedProjects(toCollapse);
+      saveCollapsedProjects(toCollapse);
+      localStorage.setItem(initKey, "1");
+    }
+  }, [projectGroups, collapsedProjects]);
 
   if (!open) return null;
+
+  const navItems = [
+    { href: "/skills", label: t('nav.skills' as TranslationKey), icon: Lightning },
+    { href: "/mcp", label: t('nav.mcp' as TranslationKey), icon: Plug },
+    { href: "/cli-tools", label: t('nav.cliTools' as TranslationKey), icon: Terminal },
+    { href: "/gallery", label: t('nav.gallery' as TranslationKey), icon: Image },
+    { href: "/bridge", label: t('nav.bridge' as TranslationKey), icon: WifiHigh },
+  ];
 
   return (
     <>
@@ -418,7 +465,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
           <ConnectionStatus />
         </div>
 
-      {/* New Chat + New Project */}
+      {/* Top action bar: New Chat + Search */}
       <div className="flex items-center gap-2 px-3 pb-2">
         <Button
           variant="outline"
@@ -436,54 +483,63 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
               variant="outline"
               size="icon-sm"
               className="h-8 w-8 shrink-0"
-              onClick={() => openFolderPicker()}
+              onClick={() => setSearchDialogOpen(true)}
             >
-              <FolderOpen size={14} />
-              <span className="sr-only">{t('chatList.addProjectFolder')}</span>
+              <MagnifyingGlass size={14} />
+              <span className="sr-only">{t('chatList.searchSessions')}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">{t('chatList.addProjectFolder')}</TooltipContent>
+          <TooltipContent side="bottom">{t('chatList.searchSessions')}</TooltipContent>
         </Tooltip>
       </div>
 
-      {/* Search */}
+      {/* Feature nav items */}
       <div className="px-3 pb-2">
-        <div className="relative">
-          <MagnifyingGlass
-            size={12}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            placeholder={t('chatList.searchSessions')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 pl-7 text-xs"
-          />
+        <div className="flex flex-col gap-0.5">
+          {navItems.map((item) => {
+            const isActive = pathname.startsWith(item.href);
+            return (
+              <Link key={item.href} href={item.href}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`w-full justify-start gap-2 h-8 text-xs ${
+                    isActive
+                      ? "bg-accent text-accent-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <item.icon size={14} weight={isActive ? "fill" : "regular"} />
+                  {item.label}
+                </Button>
+              </Link>
+            );
+          })}
         </div>
       </div>
 
-      {/* Import CLI Session */}
-      <div className="px-3 pb-1">
+      {/* Separator */}
+      <div className="mx-3 border-t border-border/40" />
+
+      {/* Section title + add folder button (fixed, not scrolling) */}
+      <div className="flex items-center justify-between px-5 pt-2 pb-1.5 shrink-0">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
+          {t('chatList.threads')}
+        </span>
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start gap-2 h-7 text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => setImportDialogOpen(true)}
+          className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground/60 hover:text-foreground"
+          onClick={() => openFolderPicker()}
         >
-          <FileArrowDown size={12} />
-          {t('chatList.importFromCli')}
+          <FolderPlus size={12} />
+          {t('chatList.addProjectFolder')}
         </Button>
       </div>
 
       {/* Session list grouped by project */}
       <ScrollArea className="flex-1 min-h-0 px-3 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="flex flex-col pb-3">
-          {/* Section title */}
-          <div className="px-2 pt-1 pb-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
-              {t('chatList.threads')}
-            </span>
-          </div>
 
           {/* Split group section */}
           {isSplitActive && (
@@ -511,6 +567,20 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
               const isFolderHovered =
                 hoveredFolder === group.workingDirectory;
 
+              const isSessionsExpanded = expandedSessionGroups.has(group.workingDirectory);
+              const shouldTruncate = group.sessions.length > SESSION_TRUNCATE_LIMIT;
+              let visibleSessions = group.sessions;
+              if (shouldTruncate && !isSessionsExpanded) {
+                const truncated = group.sessions.slice(0, SESSION_TRUNCATE_LIMIT);
+                // Ensure the active session is always visible even when truncated
+                const activeSession = group.sessions.find(s => pathname === `/chat/${s.id}`);
+                if (activeSession && !truncated.includes(activeSession)) {
+                  truncated.push(activeSession);
+                }
+                visibleSessions = truncated;
+              }
+              const hiddenCount = group.sessions.length - visibleSessions.length;
+
               return (
                 <div key={group.workingDirectory || "__no_project"} className="mt-1 first:mt-0">
                   {/* Folder header */}
@@ -527,41 +597,72 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                     onRemoveProject={handleRemoveProject}
                   />
 
-                  {/* Session items */}
-                  {!isCollapsed && (
-                    <div className="mt-0.5 flex flex-col gap-0.5">
-                      {group.sessions.map((session) => {
-                        const isActive = pathname === `/chat/${session.id}`;
-                        const canSplit = !isActive && !isInSplit(session.id);
+                  {/* Session items with animated collapse */}
+                  <AnimatePresence initial={false}>
+                    {!isCollapsed && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        <div className="mt-0.5 flex flex-col gap-0.5">
+                          {visibleSessions.map((session) => {
+                            const isActive = pathname === `/chat/${session.id}`;
+                            const canSplit = !isActive && !isInSplit(session.id);
 
-                        return (
-                          <SessionListItem
-                            key={session.id}
-                            session={session}
-                            isActive={isActive}
-                            isHovered={hoveredSession === session.id}
-                            isDeleting={deletingSession === session.id}
-                            isSessionStreaming={activeStreamingSessions.has(session.id) || streamingSessionId === session.id}
-                            needsApproval={pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id}
-                            canSplit={canSplit}
-                            formatRelativeTime={formatRelativeTime}
-                            t={t}
-                            onMouseEnter={() => setHoveredSession(session.id)}
-                            onMouseLeave={() => setHoveredSession(null)}
-                            onDelete={handleDeleteSession}
-                            onRename={handleRenameSession}
-                            onAddToSplit={(s) => addToSplit({
-                              sessionId: s.id,
-                              title: s.title,
-                              workingDirectory: s.working_directory || "",
-                              projectName: s.project_name || "",
-                              mode: s.mode,
-                            })}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
+                            return (
+                              <SessionListItem
+                                key={session.id}
+                                session={session}
+                                isActive={isActive}
+                                isHovered={hoveredSession === session.id}
+                                isDeleting={deletingSession === session.id}
+                                isSessionStreaming={activeStreamingSessions.has(session.id) || streamingSessionId === session.id}
+                                needsApproval={pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id}
+                                canSplit={canSplit}
+                                formatRelativeTime={formatRelativeTime}
+                                t={t}
+                                onMouseEnter={() => setHoveredSession(session.id)}
+                                onMouseLeave={() => setHoveredSession(null)}
+                                onDelete={handleDeleteSession}
+                                onRename={handleRenameSession}
+                                onAddToSplit={(s) => addToSplit({
+                                  sessionId: s.id,
+                                  title: s.title,
+                                  workingDirectory: s.working_directory || "",
+                                  projectName: s.project_name || "",
+                                  mode: s.mode,
+                                })}
+                              />
+                            );
+                          })}
+
+                          {/* Show more / Show less toggle */}
+                          {shouldTruncate && (
+                            <button
+                              onClick={() => setExpandedSessionGroups(prev => {
+                                const next = new Set(prev);
+                                if (next.has(group.workingDirectory)) {
+                                  next.delete(group.workingDirectory);
+                                } else {
+                                  next.add(group.workingDirectory);
+                                }
+                                return next;
+                              })}
+                              className="w-full py-1.5 text-center text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                            >
+                              {isSessionsExpanded
+                                ? t('chatList.showLess' as TranslationKey)
+                                : t('chatList.showMore' as TranslationKey, { count: String(hiddenCount) })
+                              }
+                            </button>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })
@@ -569,18 +670,81 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
         </div>
       </ScrollArea>
 
-      {/* Version */}
-      <div className="shrink-0 px-3 py-2 text-center">
-        <span className="text-[10px] text-muted-foreground/40">
-          v{process.env.NEXT_PUBLIC_APP_VERSION}
-        </span>
+      {/* Bottom: Settings */}
+      <div className="shrink-0 px-3 py-2">
+        <Link href="/settings">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`w-full justify-start gap-2 h-8 text-xs ${
+              pathname.startsWith("/settings")
+                ? "bg-accent text-accent-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Gear size={14} weight={pathname.startsWith("/settings") ? "fill" : "regular"} />
+            {t('nav.settings' as TranslationKey)}
+            {(hasUpdate || readyToInstall) && (
+              <span className={`ml-auto h-2 w-2 rounded-full ${readyToInstall ? "bg-primary" : "bg-primary animate-pulse"}`} />
+            )}
+          </Button>
+        </Link>
       </div>
 
-      {/* Import CLI Session Dialog */}
-      <ImportSessionDialog
-        open={importDialogOpen}
-        onOpenChange={setImportDialogOpen}
-      />
+      {/* Search Dialog */}
+      <Dialog open={searchDialogOpen} onOpenChange={(open) => { setSearchDialogOpen(open); if (!open) setSearchQuery(""); }}>
+        <DialogContent className="sm:max-w-md p-0 max-h-[60vh] flex flex-col overflow-hidden" showCloseButton={false}>
+          <div className="p-3 shrink-0">
+            <div className="relative">
+              <MagnifyingGlass
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                placeholder={t('chatList.searchSessions')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+                autoFocus
+              />
+            </div>
+          </div>
+          {searchQuery && (
+            <div className="overflow-y-auto px-3 pb-3 flex-1 min-h-0">
+              {filteredSessions.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-3 text-center">
+                  {t('chatList.noSessions')}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {filteredSessions.slice(0, 20).map((session) => (
+                    <button
+                      key={session.id}
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent transition-colors"
+                      onClick={() => {
+                        router.push(`/chat/${session.id}`);
+                        setSearchDialogOpen(false);
+                        setSearchQuery("");
+                      }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-sm">{session.title}</p>
+                        {session.project_name && (
+                          <p className="truncate text-xs text-muted-foreground">{session.project_name}</p>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {formatRelativeTime(session.updated_at, t)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
 
       {/* Folder Picker Dialog */}
       <FolderPicker

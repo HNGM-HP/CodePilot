@@ -8,6 +8,7 @@ import {
   MessageResponse,
 } from '@/components/ai-elements/message';
 import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
+import { MediaPreview } from './MediaPreview';
 import { Button } from '@/components/ui/button';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
@@ -15,7 +16,7 @@ import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview
 import { WidgetRenderer } from './WidgetRenderer';
 import { parseAllShowWidgets, computePartialWidgetKey } from './MessageItem';
 import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
-import type { PlannerOutput } from '@/types';
+import type { PlannerOutput, MediaBlock } from '@/types';
 
 interface ImageGenRequest {
   prompt: string;
@@ -98,6 +99,7 @@ interface ToolResultInfo {
   tool_use_id: string;
   content: string;
   is_error?: boolean;
+  media?: MediaBlock[];
 }
 
 interface StreamingMessageProps {
@@ -243,12 +245,19 @@ export function StreamingMessage({
                 input: tool.input,
                 result: result?.content,
                 isError: result?.is_error,
+                media: result?.media,
               };
             })}
             isStreaming={isStreaming}
             streamingToolOutput={streamingToolOutput}
           />
         )}
+
+        {/* Media from tool results — rendered outside tool group so images stay visible */}
+        {(() => {
+          const allMedia = toolResults.flatMap(r => r.media || []);
+          return allMedia.length > 0 ? <MediaPreview media={allMedia} /> : null;
+        })()}
 
         {/* Streaming text content rendered via Streamdown */}
         {content && (() => {

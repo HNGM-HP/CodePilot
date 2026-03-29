@@ -513,7 +513,7 @@ function createWindow(url?: string) {
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1280,
     height: 860,
-    minWidth: 800,
+    minWidth: 1024,
     minHeight: 600,
     icon: getIconPath(),
     webPreferences: {
@@ -525,6 +525,7 @@ function createWindow(url?: string) {
 
   if (process.platform === 'darwin') {
     windowOptions.titleBarStyle = 'hiddenInset';
+    windowOptions.vibrancy = 'sidebar';
   } else if (process.platform === 'win32') {
     windowOptions.titleBarStyle = 'hidden';
     windowOptions.titleBarOverlay = {

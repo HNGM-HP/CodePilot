@@ -91,6 +91,17 @@ export function UnifiedTopBar() {
   // Extract project name from working directory
   const projectName = workingDirectory ? workingDirectory.split(/[\\/]/).filter(Boolean).pop() || '' : '';
 
+  // On non-chat routes, render only a thin drag region (no visible bar)
+  if (!isChatRoute) {
+    // Thin drag region for macOS window dragging — just enough for traffic light area
+    return (
+      <div
+        className="h-3 shrink-0"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      />
+    );
+  }
+
   return (
     <>
       <div

@@ -135,11 +135,20 @@ export interface Message {
   token_usage: string | null; // JSON string of TokenUsage
 }
 
+// Media content block (MCP-compatible: image/audio/video in tool results)
+export interface MediaBlock {
+  type: 'image' | 'audio' | 'video';
+  data?: string;        // base64 (transit only, cleared after save to disk)
+  mimeType: string;     // e.g. 'image/png', 'video/mp4'
+  localPath?: string;   // local file path (after save to .codepilot-media/)
+  mediaId?: string;     // media_generations.id (after DB save)
+}
+
 // Structured message content blocks (stored as JSON in messages.content)
 export type MessageContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; media?: MediaBlock[] }
   | { type: 'code'; language: string; code: string };
 
 // Helper to parse message content - returns blocks or wraps plain text
@@ -747,6 +756,16 @@ export function isImageFile(type: string): boolean {
   return type.startsWith('image/');
 }
 
+// Check if a MIME type is a video
+export function isVideoFile(type: string): boolean {
+  return type.startsWith('video/');
+}
+
+// Check if a MIME type is any visual media (image or video)
+export function isMediaFile(type: string): boolean {
+  return type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/');
+}
+
 // Format bytes into human-readable size
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B';
@@ -917,6 +936,7 @@ export interface ToolResultInfo {
   tool_use_id: string;
   content: string;
   is_error?: boolean;
+  media?: MediaBlock[];
 }
 
 export type StreamPhase = 'active' | 'completed' | 'error' | 'stopped';
@@ -1025,6 +1045,22 @@ export interface CliToolDefinition {
   useCases: { zh: string[]; en: string[] };
   guideSteps: { zh: string[]; en: string[] };
   examplePrompts: CliToolExamplePrompt[];
+  /** Commands that MUST be run after install (e.g. skills install, dependency install).
+   *  These are injected into the chat prefill — only include machine-executable commands,
+   *  not human-readable guidance. */
+  postInstallCommands?: string[];
+  /** Tool is designed for AI agents (non-interactive flags, structured output, skills) */
+  agentFriendly?: boolean;
+  /** Tool supports --json or similar structured output flag */
+  supportsJson?: boolean;
+  /** Tool supports runtime schema introspection (e.g. "gws schema", "--help --json") */
+  supportsSchema?: boolean;
+  /** Tool supports --dry-run for previewing destructive actions */
+  supportsDryRun?: boolean;
+  /** Tool supports field masks or pagination to reduce context window usage */
+  contextFriendly?: boolean;
+  /** Command to check auth/health status (e.g. "stripe status", "lark-cli auth status") */
+  healthCheckCommand?: string;
   homepage?: string;
   repoUrl?: string;
   officialDocsUrl?: string;
@@ -1037,6 +1073,35 @@ export interface CliToolRuntimeInfo {
   version: string | null;
   binPath: string | null;
   autoDescription?: { zh: string; en: string } | null;
+}
+
+export interface CustomCliTool {
+  id: string;
+  name: string;
+  binPath: string;
+  binName: string;
+  version: string | null;
+  installMethod: string;
+  installPackage: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CliToolAgentCompat {
+  agentFriendly?: boolean;
+  supportsJson?: boolean;
+  supportsSchema?: boolean;
+  supportsDryRun?: boolean;
+  contextFriendly?: boolean;
+}
+
+export interface CliToolStructuredDesc {
+  intro: { zh: string; en: string };
+  useCases: { zh: string[]; en: string[] };
+  guideSteps: { zh: string[]; en: string[] };
+  examplePrompts: CliToolExamplePrompt[];
+  agentCompat?: CliToolAgentCompat;
 }
 
 // ==========================================

@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
-import type { Message, TokenUsage, FileAttachment } from '@/types';
+import type { Message, TokenUsage, FileAttachment, MediaBlock } from '@/types';
 import {
   Message as AIMessage,
   MessageContent,
   MessageResponse,
 } from '@/components/ai-elements/message';
 import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
+import { MediaPreview } from './MediaPreview';
 import { Button } from "@/components/ui/button";
 import { Copy, Check, CaretDown, CaretUp } from "@/components/ui/icon";
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
@@ -280,6 +281,7 @@ interface ToolBlock {
   input?: unknown;
   content?: string;
   is_error?: boolean;
+  media?: MediaBlock[];
 }
 
 function parseToolBlocks(content: string): { text: string; tools: ToolBlock[] } {
@@ -316,6 +318,7 @@ function parseToolBlocks(content: string): { text: string; tools: ToolBlock[] } 
             id: block.tool_use_id,
             content: block.content,
             is_error: block.is_error,
+            media: (block as { media?: MediaBlock[] }).media,
           });
         }
       }
@@ -359,12 +362,14 @@ function pairTools(tools: ToolBlock[]): Array<{
   input: unknown;
   result?: string;
   isError?: boolean;
+  media?: MediaBlock[];
 }> {
   const paired: Array<{
     name: string;
     input: unknown;
     result?: string;
     isError?: boolean;
+    media?: MediaBlock[];
   }> = [];
 
   const resultMap = new Map<string, ToolBlock>();
@@ -382,6 +387,7 @@ function pairTools(tools: ToolBlock[]): Array<{
         input: t.input,
         result: result?.content,
         isError: result?.is_error,
+        media: result?.media,
       });
     }
   }
@@ -393,6 +399,7 @@ function pairTools(tools: ToolBlock[]): Array<{
         input: {},
         result: t.content,
         isError: t.is_error,
+        media: t.media,
       });
     }
   }
@@ -529,9 +536,16 @@ export const MessageItem = memo(function MessageItem({ message, sessionId }: Mes
               input: tool.input,
               result: tool.result,
               isError: tool.isError,
+              media: tool.media,
             }))}
           />
         )}
+
+        {/* Media from tool results — rendered outside tool group so images stay visible regardless of collapse state */}
+        {!isUser && (() => {
+          const allMedia = pairedTools.flatMap(t => t.media || []);
+          return allMedia.length > 0 ? <MediaPreview media={allMedia} /> : null;
+        })()}
 
         {/* Text content */}
         {displayText && (
