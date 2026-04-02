@@ -1104,10 +1104,10 @@ const zh: Record<TranslationKey, string> = {
   // ── Top Bar ───────────────────────────────────────────────────
   'topBar.fileTree': '文件树',
   'topBar.git': 'Git',
-  'topBar.dashboard': '看板',
   'topBar.commit': '提交全部',
   'topBar.push': '推送',
   'topBar.terminal': '终端',
+  'topBar.dashboard': '看板',
 
   // ── Dashboard ─────────────────────────────────────────────────
   'dashboard.title': '看板',

@@ -1107,10 +1107,10 @@ const en = {
   // ── Top Bar ───────────────────────────────────────────────────
   'topBar.fileTree': 'File Tree',
   'topBar.git': 'Git',
-  'topBar.dashboard': 'Dashboard',
   'topBar.commit': 'Commit All',
   'topBar.push': 'Push',
   'topBar.terminal': 'Terminal',
+  'topBar.dashboard': 'Dashboard',
 
   // ── Dashboard ─────────────────────────────────────────────────
   'dashboard.title': 'Dashboard',

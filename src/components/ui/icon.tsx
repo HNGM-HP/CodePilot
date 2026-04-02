@@ -92,7 +92,6 @@ export {
   GitCommit,
   CloudArrowUp,
   ArrowsInLineVertical,
-  PushPin,
 } from "@phosphor-icons/react";
 
 export type { Icon, IconProps } from "@phosphor-icons/react";

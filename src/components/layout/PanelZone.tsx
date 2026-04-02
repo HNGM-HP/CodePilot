@@ -20,7 +20,6 @@ export function PanelZone() {
       {previewOpen && previewFile && <PreviewPanel />}
       {gitPanelOpen && <GitPanelContainer />}
       {fileTreeOpen && <FileTreePanel />}
-      {dashboardPanelOpen && <DashboardPanel />}
     </div>
   );
 }

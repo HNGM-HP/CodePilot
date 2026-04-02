@@ -29,10 +29,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   bridge: {
     isActive: () => ipcRenderer.invoke('bridge:is-active'),
   },
-  widget: {
-    exportPng: (html: string, width: number, isDark: boolean) =>
-      ipcRenderer.invoke('widget:export-png', { html, width, isDark }),
-  },
   terminal: {
     create: (opts: { id: string; cwd: string; cols: number; rows: number }) =>
       ipcRenderer.invoke('terminal:create', opts),
