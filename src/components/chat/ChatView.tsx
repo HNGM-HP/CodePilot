@@ -38,11 +38,15 @@ interface ChatViewProps {
 }
 
 export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, providerId, initialPermissionProfile, initialMode }: ChatViewProps) {
-  const { setStreamingSessionId, workingDirectory, setPendingApprovalSessionId } = usePanel();
+  const { setStreamingSessionId, workingDirectory, setPendingApprovalSessionId, setDashboardPanelOpen, setFileTreeOpen, setIsAssistantWorkspace } = usePanel();
   const { t } = useTranslation();
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>(initialPermissionProfile || 'default');
+
+  // Whether this session's working directory matches the configured assistant workspace
+  const [isAssistantProject, setIsAssistantProject] = useState(false);
+  const [assistantName, setAssistantName] = useState('');
 
   // Workspace mismatch banner state
   const [workspaceMismatchPath, setWorkspaceMismatchPath] = useState<string | null>(null);
@@ -183,6 +187,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         if (cancelled) return;
 
         if (data.path && workingDirectory !== data.path) {
+          setIsAssistantProject(false);
+          setIsAssistantWorkspace(false);
           const inspectRes = await fetch(`/api/workspace/inspect?path=${encodeURIComponent(workingDirectory)}`);
           if (!inspectRes.ok || cancelled) return;
           const inspectData = await inspectRes.json();
@@ -192,7 +198,31 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             setWorkspaceMismatchPath(null);
           }
         } else {
+          // workingDirectory matches assistant workspace path
+          const isAssistant = !!data.path;
+          setIsAssistantProject(isAssistant);
           setWorkspaceMismatchPath(null);
+          // Assistant project: show dashboard (with assistant status card) instead of file tree
+          setIsAssistantWorkspace(isAssistant);
+          if (isAssistant) {
+            setFileTreeOpen(false);
+            setDashboardPanelOpen(true);
+          }
+          // Load assistant name for avatar display
+          if (data.path) {
+            try {
+              const summaryRes = await fetch('/api/workspace/summary');
+              if (summaryRes.ok && !cancelled) {
+                const summary = await summaryRes.json();
+                setAssistantName(summary.name || '');
+                // Store buddy emoji globally for MessageItem avatar rendering
+                // Store buddy info globally for MessageItem avatar rendering
+                (globalThis as Record<string, unknown>).__codepilot_buddy_info__ = summary.buddy
+                  ? { emoji: summary.buddy.emoji, species: summary.buddy.species, rarity: summary.buddy.rarity }
+                  : undefined;
+              }
+            } catch { /* ignore */ }
+          }
         }
       } catch {
         // ignore
@@ -447,6 +477,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         onLoadMore={loadEarlierMessages}
         rewindPoints={rewindPoints}
         sessionId={sessionId}
+        isAssistantProject={isAssistantProject}
+        assistantName={assistantName}
       />
       {/* Permission prompt */}
       <PermissionPrompt
@@ -477,6 +509,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         effort={selectedEffort}
         onEffortChange={setSelectedEffort}
         sdkInitMeta={initMetaRef.current}
+        isAssistantProject={isAssistantProject}
+        hasMessages={messages.length > 0}
       />
       <ChatComposerActionBar
         left={<><ModeIndicator mode={mode} onModeChange={handleModeChange} disabled={isStreaming} /><ImageGenToggle /></>}
