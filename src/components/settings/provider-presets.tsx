@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { HardDrives, Gear } from "@/components/ui/icon";
+import { HardDrives } from "@/components/ui/icon";
 import type { ApiProvider } from "@/types";
 import Anthropic from "@lobehub/icons/es/Anthropic";
 import OpenRouter from "@lobehub/icons/es/OpenRouter";
@@ -15,6 +15,7 @@ import Google from "@lobehub/icons/es/Google";
 import Volcengine from "@lobehub/icons/es/Volcengine";
 import Bailian from "@lobehub/icons/es/Bailian";
 import XiaomiMiMo from "@lobehub/icons/es/XiaomiMiMo";
+import Ollama from "@lobehub/icons/es/Ollama";
 
 // ---------------------------------------------------------------------------
 // Brand icon resolver
@@ -37,6 +38,7 @@ export function getProviderIcon(name: string, baseUrl: string): ReactNode {
     return <Bailian size={18} />;
   if (url.includes("xiaomimimo") || lower.includes("mimo") || lower.includes("小米"))
     return <XiaomiMiMo size={18} />;
+  if (url.includes("11434") || lower.includes("ollama")) return <Ollama size={18} />;
   if (lower.includes("bedrock")) return <Bedrock size={18} />;
   if (lower.includes("vertex") || lower.includes("google")) return <Google size={18} />;
   if (lower.includes("aws")) return <Aws size={18} />;
@@ -192,12 +194,24 @@ export const QUICK_PRESETS: QuickPreset[] = [
   {
     key: "xiaomi-mimo",
     name: "Xiaomi MiMo",
-    description: "Xiaomi MiMo Coding Plan — MiMo-V2-Pro",
-    descriptionZh: "小米 MiMo 编程套餐 — MiMo-V2-Pro",
+    description: "Xiaomi MiMo Pay-as-you-go API — MiMo-V2-Pro",
+    descriptionZh: "小米 MiMo 按量付费 — MiMo-V2-Pro",
     icon: <XiaomiMiMo size={18} />,
     provider_type: "anthropic",
     protocol: "anthropic",
     base_url: "https://api.xiaomimimo.com/anthropic",
+    extra_env: '{"ANTHROPIC_AUTH_TOKEN":""}',
+    fields: ["api_key"],
+  },
+  {
+    key: "xiaomi-mimo-token-plan",
+    name: "Xiaomi MiMo Token Plan",
+    description: "Xiaomi MiMo Token Plan subscription — MiMo-V2-Pro",
+    descriptionZh: "小米 MiMo Token Plan 订阅套餐 — MiMo-V2-Pro",
+    icon: <XiaomiMiMo size={18} />,
+    provider_type: "anthropic",
+    protocol: "anthropic",
+    base_url: "https://token-plan-cn.xiaomimimo.com/anthropic",
     extra_env: '{"ANTHROPIC_AUTH_TOKEN":""}',
     fields: ["api_key"],
   },
@@ -237,6 +251,19 @@ export const QUICK_PRESETS: QuickPreset[] = [
     base_url: "",
     extra_env: '{"CLAUDE_CODE_USE_VERTEX":"1","CLOUD_ML_REGION":"us-east5","CLAUDE_CODE_SKIP_VERTEX_AUTH":"1"}',
     fields: ["extra_env"],
+  },
+  // ── Local / self-hosted ──
+  {
+    key: "ollama",
+    name: "Ollama",
+    description: "Ollama — run local models with Anthropic-compatible API",
+    descriptionZh: "Ollama — 本地运行模型，Anthropic 兼容 API",
+    icon: <Ollama size={18} />,
+    provider_type: "anthropic",
+    protocol: "anthropic",
+    base_url: "http://localhost:11434",
+    extra_env: '{"ANTHROPIC_AUTH_TOKEN":"ollama","ANTHROPIC_API_KEY":""}',
+    fields: ["base_url", "model_names"],
   },
   // ── Proxy / gateway ──
   {

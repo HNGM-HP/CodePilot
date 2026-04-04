@@ -1,36 +1,32 @@
-## CodePilot v0.42.0
+## CodePilot v0.46.0
 
-> 本版本聚焦 **CLI 工具的 AI 化安装体验**和全新的 **Agent 友好度评分系统**。安装工具改为由 AI 全程协助，工具卡片新增 5 星评分帮你判断哪些工具最适合 AI 使用。
+> 新增 Ollama 本地模型支持，优化工具调用展示和推理内容（Thinking）的显示与保留。
 
 ### 新增功能
 
-- **AI 协助安装 CLI 工具**：点击安装按钮直接跳转聊天，AI 帮你执行安装命令、处理权限问题、引导认证配置、生成工具简介，全流程在对话中完成
-- **Agent 友好度 5 星评分**：工具卡片新增 ★★★★★ 评分，从 5 个维度评估工具对 AI 的友好程度（Agent 原生设计 / JSON 输出 / Schema 自省 / Dry Run / 上下文友好）
-- **AI 自动评估兼容度**：通过聊天添加的自定义工具，AI 会从 --help 输出自动评估 Agent 兼容度；批量生成简介时也会同步评估
-- **新增推荐 CLI 工具**：即梦 Dreamina CLI（AI 图片/视频生成）、飞书 Lark CLI（200+ 命令覆盖飞书全业务域）
-- **工具安装后自动配置**：需要认证的工具安装后，AI 自动引导完成登录和配置；需要 Skills 安装的工具（飞书、gws）会在安装提示中告知
+- 新增 Ollama 服务商预设：一键接入本地模型，无需 API 密钥
+- 新增推理内容（Thinking）流式展示：支持实时查看模型的推理过程
+- 工具调用展示全面重构：分组折叠、状态指示、运行中工具实时输出
 
 ### 修复问题
 
-- 修复斜杠命令（如 /review）发送时用户附加文本在气泡中不显示的问题
-- 修复 JSON 格式版本号（如 Dreamina CLI）在工具卡片上显示为乱码的问题
-- 移除不可用的 Custom API (OpenAI-compatible) Provider 选项
-- 修复旧版 custom provider 升级时可能误删有效配置的问题
+- 修复中断或出错时已展示的推理内容（Thinking）在完成态消失的问题
+- 修复远程桥接（Telegram/Discord/飞书）静默丢弃推理内容的问题
+- 修复未注册工具（MCP 工具、插件工具等）在操作列表中不显示名称的问题
+- 修复 auth_token 认证方式未显式清空 API Key 导致部分服务商连接失败的问题
 
 ### 优化改进
 
-- 工具详情弹窗新增"AI Agent 兼容度"区域，展示具体达标维度和评分
-- GLM 模型更新为 GLM-5-Turbo / GLM-5.1 / GLM-4.5-Air
-- MCP list 工具的 JSON 输出在所有工具类型中统一字段格式
+- 服务商文档新增 Ollama 配置指南（中英双语）
 
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.42.0/CodePilot-0.42.0-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.42.0/CodePilot-0.42.0-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.46.0/CodePilot-0.46.0-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.46.0/CodePilot-0.46.0-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.42.0/CodePilot-Setup-0.42.0.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.46.0/CodePilot.Setup.0.46.0.exe)
 
 ## 安装说明
 
@@ -40,5 +36,5 @@
 ## 系统要求
 
 - macOS 12.0+ / Windows 10+ / Linux (glibc 2.31+)
-- 需要配置 API 服务商（Anthropic / OpenRouter 等）
+- 需要配置 API 服务商（Anthropic / OpenRouter / Ollama 等）
 - 推荐安装 Claude Code CLI 以获得完整功能

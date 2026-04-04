@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { cn } from '@/lib/utils';
 import type { Message, TokenUsage, FileAttachment, MediaBlock } from '@/types';
 import {
   Message as AIMessage,
@@ -10,7 +12,7 @@ import {
 import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
 import { MediaPreview } from './MediaPreview';
 import { Button } from "@/components/ui/button";
-import { Copy, Check, CaretDown, CaretUp } from "@/components/ui/icon";
+import { Copy, Check, CaretDown, CaretUp, CaretRight, NotePencil, PushPin, DownloadSimple } from "@/components/ui/icon";
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { ImageGenCard } from './ImageGenCard';
@@ -19,6 +21,7 @@ import { WidgetRenderer } from './WidgetRenderer';
 import { buildReferenceImages } from '@/lib/image-ref-store';
 import { SPECIES_IMAGE_URL, EGG_IMAGE_URL, RARITY_BG_GRADIENT, type Species, type Rarity } from '@/lib/buddy';
 import { parseDBDate } from '@/lib/utils';
+import { usePanel } from '@/hooks/usePanel';
 import type { PlannerOutput } from '@/types';
 
 interface ImageGenRequest {
@@ -158,59 +161,103 @@ export type WidgetSegment =
   | { type: 'text'; content: string }
   | { type: 'widget'; data: ShowWidgetData };
 
-/** Parse ALL show-widget fences in text, returning alternating text/widget segments. */
+/**
+ * Fence-format-agnostic widget parser.
+ *
+ * Models produce many fence variants (```show-widget, `show-widget`, `show-widget\n...\n`, etc.).
+ * Instead of normalizing each variant, we directly scan for "show-widget" markers followed by
+ * JSON containing "widget_code", regardless of surrounding backtick syntax.
+ */
+
+/** Find the end of a JSON object starting at `{`, accounting for nested braces and strings. */
+function findJsonEnd(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\' && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) return i; }
+  }
+  return -1; // unclosed
+}
+
+/** Parse ALL show-widget blocks in text, returning alternating text/widget segments. */
 export function parseAllShowWidgets(text: string): WidgetSegment[] {
   const segments: WidgetSegment[] = [];
-  const fenceRegex = /```show-widget\s*\n?([\s\S]*?)\n?\s*```/g;
+  // Match any backtick(s) + show-widget, capturing the full marker to strip it
+  const markerRegex = /`{1,3}show-widget`{0,3}\s*(?:\n\s*`{3}(?:json)?\s*)?\n?/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   let foundAny = false;
 
-  while ((match = fenceRegex.exec(text)) !== null) {
-    foundAny = true;
-    // Text before this fence
-    const before = text.slice(lastIndex, match.index).trim();
-    if (before) segments.push({ type: 'text', content: before });
-
-    // Parse widget JSON
-    try {
-      const json = JSON.parse(match[1]);
-      if (json.widget_code) {
-        segments.push({ type: 'widget', data: { title: json.title || undefined, widget_code: String(json.widget_code) } });
+  while ((match = markerRegex.exec(text)) !== null) {
+    const afterMarker = match.index + match[0].length;
+    // Find the JSON object start
+    const jsonStart = text.indexOf('{', afterMarker);
+    if (jsonStart === -1 || jsonStart > afterMarker + 20) {
+      // No JSON nearby — skip this malformed marker, advance past any fence block
+      const fenceClose = text.indexOf('```', afterMarker);
+      if (fenceClose !== -1 && fenceClose < afterMarker + 200) {
+        lastIndex = fenceClose + 3;
+        markerRegex.lastIndex = fenceClose + 3;
+        foundAny = true; // so trailing text is captured
       }
-    } catch { /* skip malformed widget */ }
+      continue;
+    }
 
-    lastIndex = match.index + match[0].length;
+    const jsonEnd = findJsonEnd(text, jsonStart);
+    if (jsonEnd === -1) {
+      // Truncated JSON — try extracting partial widget
+      const partialBody = text.slice(jsonStart);
+      const widget = extractTruncatedWidget(partialBody);
+      if (widget) {
+        foundAny = true;
+        const before = text.slice(lastIndex, match.index).trim();
+        if (before) segments.push({ type: 'text', content: before });
+        segments.push({ type: 'widget', data: widget });
+        lastIndex = text.length;
+      }
+      break;
+    }
+
+    const jsonStr = text.slice(jsonStart, jsonEnd + 1);
+    try {
+      const json = JSON.parse(jsonStr);
+      if (json.widget_code) {
+        foundAny = true;
+        const before = text.slice(lastIndex, match.index).trim();
+        if (before) segments.push({ type: 'text', content: before });
+        segments.push({ type: 'widget', data: { title: json.title || undefined, widget_code: String(json.widget_code) } });
+        // Skip past the JSON and any trailing fence/backticks
+        let endPos = jsonEnd + 1;
+        const trailing = text.slice(endPos, endPos + 10);
+        const trailingFence = trailing.match(/^\s*\n?`{1,3}\s*/);
+        if (trailingFence) endPos += trailingFence[0].length;
+        lastIndex = endPos;
+        markerRegex.lastIndex = endPos;
+      }
+    } catch {
+      // Malformed JSON — skip past the fence block
+      const fenceClose = text.indexOf('```', jsonStart);
+      if (fenceClose !== -1) {
+        markerRegex.lastIndex = fenceClose + 3;
+        lastIndex = fenceClose + 3;
+        foundAny = true; // Mark as found so trailing text is captured
+      }
+    }
   }
 
-  if (!foundAny) {
-    // Fallback: handle truncated output (last fence not closed)
-    const fenceStart = text.indexOf('```show-widget');
-    if (fenceStart === -1) return [];
+  if (!foundAny) return [];
 
-    const before = text.slice(0, fenceStart).trim();
-    if (before) segments.push({ type: 'text', content: before });
-
-    const fenceBody = text.slice(fenceStart + '```show-widget'.length).trim();
-    const widget = extractTruncatedWidget(fenceBody);
-    if (widget) segments.push({ type: 'widget', data: widget });
-    return segments;
-  }
-
-  // Remaining text after last fence
+  // Remaining text after last widget
   const remaining = text.slice(lastIndex).trim();
   if (remaining) {
-    // Check if remaining text has a truncated widget fence
-    const truncFenceStart = remaining.indexOf('```show-widget');
-    if (truncFenceStart !== -1) {
-      const beforeTrunc = remaining.slice(0, truncFenceStart).trim();
-      if (beforeTrunc) segments.push({ type: 'text', content: beforeTrunc });
-      const truncBody = remaining.slice(truncFenceStart + '```show-widget'.length).trim();
-      const widget = extractTruncatedWidget(truncBody);
-      if (widget) segments.push({ type: 'widget', data: widget });
-    } else {
-      segments.push({ type: 'text', content: remaining });
-    }
+    segments.push({ type: 'text', content: remaining });
   }
 
   return segments;
@@ -225,9 +272,11 @@ export function parseAllShowWidgets(text: string): WidgetSegment[] {
  * → iframe destroyed → height collapse → scroll jump (P2 regression).
  */
 export function computePartialWidgetKey(content: string): string {
-  const lastFenceStart = content.lastIndexOf('```show-widget');
-  const beforePart = content.slice(0, lastFenceStart).trim();
-  const hasCompletedFences = beforePart.length > 0 && /```show-widget/.test(beforePart);
+  const markers = [...content.matchAll(/`{1,3}show-widget/g)];
+  if (markers.length === 0) return 'w-0';
+  const lastMarker = markers[markers.length - 1];
+  const beforePart = content.slice(0, lastMarker.index).trim();
+  const hasCompletedFences = beforePart.length > 0 && /`{1,3}show-widget/.test(beforePart);
   const completedSegments = hasCompletedFences ? parseAllShowWidgets(beforePart) : [];
   return `w-${hasCompletedFences ? completedSegments.length : (beforePart ? 1 : 0)}`;
 }
@@ -258,6 +307,7 @@ function extractTruncatedWidget(fenceBody: string): ShowWidgetData | null {
       .replace(/\\t/g, '\t')
       .replace(/\\r/g, '\r')
       .replace(/\\"/g, '"')
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
       .replace(/\x00BACKSLASH\x00/g, '\\');
     if (widgetCode.length < 10) return null;
 
@@ -289,9 +339,10 @@ interface ToolBlock {
   media?: MediaBlock[];
 }
 
-function parseToolBlocks(content: string): { text: string; tools: ToolBlock[] } {
+function parseToolBlocks(content: string): { text: string; tools: ToolBlock[]; thinking?: string } {
   const tools: ToolBlock[] = [];
   let text = '';
+  let thinking: string | undefined;
 
   // Try to parse as JSON array (new format from chat API)
   if (content.startsWith('[')) {
@@ -299,6 +350,7 @@ function parseToolBlocks(content: string): { text: string; tools: ToolBlock[] } 
       const blocks = JSON.parse(content) as Array<{
         type: string;
         text?: string;
+        thinking?: string;
         id?: string;
         name?: string;
         input?: unknown;
@@ -306,9 +358,11 @@ function parseToolBlocks(content: string): { text: string; tools: ToolBlock[] } 
         content?: string;
         is_error?: boolean;
       }>;
-      
+
       for (const block of blocks) {
-        if (block.type === 'text' && block.text) {
+        if (block.type === 'thinking' && block.thinking) {
+          thinking = block.thinking;
+        } else if (block.type === 'text' && block.text) {
           text += block.text;
         } else if (block.type === 'tool_use') {
           tools.push({
@@ -327,8 +381,8 @@ function parseToolBlocks(content: string): { text: string; tools: ToolBlock[] } 
           });
         }
       }
-      
-      return { text: text.trim(), tools };
+
+      return { text: text.trim(), tools, thinking };
     } catch {
       // Not valid JSON, fall through to legacy parsing
     }
@@ -474,6 +528,49 @@ function TokenUsageDisplay({ usage }: { usage: TokenUsage }) {
 
 const COLLAPSE_HEIGHT = 300;
 
+// ---------------------------------------------------------------------------
+// Diff summary — shows modified files after assistant turn
+// ---------------------------------------------------------------------------
+
+function DiffSummary({ files }: { files: Array<{ path: string; name: string }> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen(prev => !prev)}
+        className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+      >
+        <CaretRight
+          size={10}
+          className={cn("shrink-0 transition-transform duration-200", open && "rotate-90")}
+        />
+        <span>Modified {files.length} file{files.length > 1 ? 's' : ''}</span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="ml-3 mt-0.5 space-y-0.5">
+              {files.map(f => (
+                <div key={f.path} className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground/40">
+                  <NotePencil size={10} className="shrink-0" />
+                  <span className="truncate" title={f.path}>{f.name}</span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export const MessageItem = memo(function MessageItem({ message, sessionId, isAssistantProject, assistantName }: MessageItemProps) {
   const isUser = message.role === 'user';
 
@@ -482,11 +579,12 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
   const [isOverflowing, setIsOverflowing] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
+
   // Memoize expensive parsing: parseToolBlocks + pairTools
-  const { text, pairedTools } = useMemo(() => {
-    const { text, tools } = parseToolBlocks(message.content);
+  const { text, pairedTools, thinking } = useMemo(() => {
+    const { text, tools, thinking } = parseToolBlocks(message.content);
     const pairedTools = pairTools(tools);
-    return { text, pairedTools };
+    return { text, pairedTools, thinking };
   }, [message.content]);
 
   // Memoize file attachment parsing
@@ -547,8 +645,8 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
           <FileAttachmentDisplay files={files} />
         )}
 
-        {/* Tool calls for assistant messages — compact collapsible group */}
-        {!isUser && pairedTools.length > 0 && (
+        {/* Tool calls + thinking for assistant messages — single collapsible group */}
+        {!isUser && (pairedTools.length > 0 || thinking) && (
           <ToolActionsGroup
             tools={pairedTools.map((tool, i) => ({
               id: `hist-${i}`,
@@ -558,10 +656,11 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
               isError: tool.isError,
               media: tool.media,
             }))}
+            thinkingContent={thinking}
           />
         )}
 
-        {/* Media from tool results — rendered outside tool group so images stay visible regardless of collapse state */}
+        {/* Media from tool results — rendered outside tool group so images stay visible */}
         {!isUser && (() => {
           const allMedia = pairedTools.flatMap(t => t.media || []);
           return allMedia.length > 0 ? <MediaPreview media={allMedia} /> : null;
@@ -610,6 +709,24 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
         )}
       </MessageContent>
 
+      {/* Diff summary for assistant messages with file modifications */}
+      {!isUser && (() => {
+        const WRITE_TOOLS = new Set(['write', 'edit', 'writefile', 'write_file', 'create_file', 'createfile', 'notebookedit', 'notebook_edit']);
+        const modifiedFiles = pairedTools
+          .filter(t => WRITE_TOOLS.has(t.name.toLowerCase()) && !t.isError)
+          .map(t => {
+            const inp = t.input as Record<string, unknown> | undefined;
+            const filePath = (inp?.file_path || inp?.path || inp?.filePath || '') as string;
+            const parts = filePath.split('/');
+            return { path: filePath, name: parts[parts.length - 1] || filePath };
+          })
+          .filter(f => f.path);
+        if (modifiedFiles.length === 0) return null;
+        // Deduplicate by path
+        const unique = [...new Map(modifiedFiles.map(f => [f.path, f])).values()];
+        return <DiffSummary files={unique} />;
+      })()}
+
       {/* Footer with copy, timestamp and token usage */}
       <div className={`flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ${isUser ? 'justify-end' : ''}`}>
         {!isUser && <span className="text-xs text-muted-foreground/50">{timestamp}</span>}
@@ -621,6 +738,62 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
     </div>
   );
 });
+
+/** Widget wrapper with "Pin to Dashboard" button.
+ * Pin triggers a chat message → AI uses codepilot_dashboard_pin MCP tool.
+ * Button is a pure trigger — no local pin/unpin state tracking.
+ * Brief cooldown prevents double-click. */
+function PinnableWidget({ widgetCode, title }: {
+  widgetCode: string; title?: string; messageId: string; sessionId?: string;
+}) {
+  const [cooldown, setCooldown] = useState(false);
+  const { workingDirectory } = usePanel();
+
+  const handlePin = useCallback(() => {
+    if (cooldown || !workingDirectory) return;
+    setCooldown(true);
+    window.dispatchEvent(new CustomEvent('widget-pin-request', {
+      detail: { widgetCode, title: title || 'Untitled Widget' },
+    }));
+    // 5s cooldown to prevent rapid duplicate pins
+    setTimeout(() => setCooldown(false), 5000);
+  }, [cooldown, workingDirectory, widgetCode, title]);
+
+  const handleExport = useCallback(async () => {
+    try {
+      const { exportWidgetAsImage, downloadBlob } = await import('@/lib/dashboard-export');
+      const blob = await exportWidgetAsImage(widgetCode);
+      downloadBlob(blob, `${(title || 'widget').replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_')}.png`);
+    } catch (e) {
+      console.error('[PinnableWidget] Export failed:', e);
+    }
+  }, [widgetCode, title]);
+
+  const buttons = (
+    <>
+      {workingDirectory && (
+        <button
+          className="text-[10px] px-1.5 py-0.5 rounded text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 disabled:opacity-30 flex items-center gap-0.5"
+          onClick={handlePin}
+          disabled={cooldown}
+        >
+          <PushPin size={12} />
+          Pin
+        </button>
+      )}
+      <button
+        className="text-[10px] px-1.5 py-0.5 rounded text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 flex items-center gap-0.5"
+        onClick={handleExport}
+      >
+        <DownloadSimple size={12} />
+      </button>
+    </>
+  );
+
+  return (
+    <WidgetRenderer widgetCode={widgetCode} isStreaming={false} title={title} extraButtons={buttons} />
+  );
+}
 
 /**
  * Memoized assistant message content — avoids re-running parseBatchPlan / parseImageGenResult /
@@ -636,7 +809,7 @@ const AssistantContent = memo(function AssistantContent({ displayText, messageId
           {widgetSegments.map((seg, i) =>
             seg.type === 'text'
               ? <MessageResponse key={`t-${i}`}>{seg.content}</MessageResponse>
-              : <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />
+              : <PinnableWidget key={`w-${i}`} widgetCode={seg.data.widget_code} title={seg.data.title} messageId={messageId} sessionId={sessionId} />
           )}
         </>
       );

@@ -27,6 +27,7 @@ export interface SSECallbacks {
   onModeChanged: (mode: string) => void;
   onTaskUpdate: (sessionId: string) => void;
   onRewindPoint: (sdkUserMessageId: string) => void;
+  onThinking?: (delta: string) => void;
   onKeepAlive: () => void;
   onError: (accumulated: string) => void;
   onInitMeta?: (meta: {
@@ -55,6 +56,11 @@ function handleSSEEvent(
       return next;
     }
 
+    case 'thinking': {
+      callbacks.onThinking?.(event.data);
+      return accumulated;
+    }
+
     case 'tool_use': {
       try {
         const toolData = JSON.parse(event.data);
@@ -75,7 +81,7 @@ function handleSSEEvent(
         callbacks.onToolResult({
           tool_use_id: resultData.tool_use_id,
           content: resultData.content,
-is_error: resultData.is_error,
+          ...(resultData.is_error ? { is_error: true } : {}),
           ...(Array.isArray(resultData.media) && resultData.media.length > 0
             ? { media: resultData.media }
             : {}),
@@ -308,6 +314,7 @@ export function useSSEStream() {
         onModeChanged: (m) => callbacksRef.current?.onModeChanged(m),
         onTaskUpdate: (s) => callbacksRef.current?.onTaskUpdate(s),
         onRewindPoint: (id) => callbacksRef.current?.onRewindPoint(id),
+        onThinking: (d) => callbacksRef.current?.onThinking?.(d),
         onKeepAlive: () => callbacksRef.current?.onKeepAlive(),
         onError: (a) => callbacksRef.current?.onError(a),
         onInitMeta: (m) => callbacksRef.current?.onInitMeta?.(m),

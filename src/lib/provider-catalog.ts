@@ -315,15 +315,41 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     sdkProxyOnly: true,
   },
 
-  // ── Xiaomi MiMo ──
+  // ── Xiaomi MiMo (按量付费) ──
   {
     key: 'xiaomi-mimo',
     name: 'Xiaomi MiMo',
-    description: 'Xiaomi MiMo Coding Plan — MiMo-V2-Pro',
-    descriptionZh: '小米 MiMo 编程套餐 — MiMo-V2-Pro',
+    description: 'Xiaomi MiMo Pay-as-you-go API — MiMo-V2-Pro',
+    descriptionZh: '小米 MiMo 按量付费 — MiMo-V2-Pro',
     protocol: 'anthropic',
     authStyle: 'auth_token',
     baseUrl: 'https://api.xiaomimimo.com/anthropic',
+    defaultEnvOverrides: {
+      ANTHROPIC_AUTH_TOKEN: '',
+    },
+    defaultModels: [
+      { modelId: 'sonnet', upstreamModelId: 'mimo-v2-pro', displayName: 'MiMo-V2-Pro', role: 'default' },
+    ],
+    defaultRoleModels: {
+      default: 'mimo-v2-pro',
+      sonnet: 'mimo-v2-pro',
+      opus: 'mimo-v2-pro',
+      haiku: 'mimo-v2-pro',
+    },
+    fields: ['api_key'],
+    iconKey: 'xiaomi-mimo',
+    sdkProxyOnly: true,
+  },
+
+  // ── Xiaomi MiMo Token Plan (订阅套餐) ──
+  {
+    key: 'xiaomi-mimo-token-plan',
+    name: 'Xiaomi MiMo Token Plan',
+    description: 'Xiaomi MiMo Token Plan subscription — MiMo-V2-Pro',
+    descriptionZh: '小米 MiMo Token Plan 订阅套餐 — MiMo-V2-Pro',
+    protocol: 'anthropic',
+    authStyle: 'auth_token',
+    baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic',
     defaultEnvOverrides: {
       ANTHROPIC_AUTH_TOKEN: '',
     },
@@ -403,6 +429,25 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     iconKey: 'google',
   },
 
+  // ── Ollama ──
+  {
+    key: 'ollama',
+    name: 'Ollama',
+    description: 'Ollama — run local models with Anthropic-compatible API',
+    descriptionZh: 'Ollama — 本地运行模型，Anthropic 兼容 API',
+    protocol: 'anthropic',
+    authStyle: 'auth_token',
+    baseUrl: 'http://localhost:11434',
+    defaultEnvOverrides: {
+      ANTHROPIC_AUTH_TOKEN: 'ollama',
+      ANTHROPIC_API_KEY: '',
+    },
+    defaultModels: [],  // User must specify — depends on pulled models
+    fields: ['base_url', 'model_names'],
+    iconKey: 'ollama',
+    sdkProxyOnly: true,
+  },
+
   // ── LiteLLM ──
   {
     key: 'litellm',
@@ -476,6 +521,7 @@ export function inferProtocolFromLegacy(
       'volces.com', 'volcengine.com',   // Volcengine
       'dashscope.aliyuncs.com',         // Bailian
       'xiaomimimo.com',                 // Xiaomi MiMo
+      'localhost:11434',                // Ollama
     ];
     const urlLower = baseUrl.toLowerCase();
     if (anthropicUrls.some(u => urlLower.includes(u))) {

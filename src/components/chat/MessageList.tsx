@@ -163,6 +163,7 @@ interface MessageListProps {
   toolUses?: ToolUseInfo[];
   toolResults?: ToolResultInfo[];
   streamingToolOutput?: string;
+  streamingThinkingContent?: string;
   statusText?: string;
   onForceStop?: () => void;
   hasMore?: boolean;
@@ -184,6 +185,7 @@ export function MessageList({
   toolUses = [],
   toolResults = [],
   streamingToolOutput,
+  streamingThinkingContent,
   statusText,
   onForceStop,
   hasMore,
@@ -197,8 +199,6 @@ export function MessageList({
   const { t } = useTranslation();
   // Scroll anchor: preserve position when older messages are prepended
   const anchorIdRef = useRef<string | null>(null);
-  const prevMessageCountRef = useRef(messages.length);
-
   // Before loading more, record the first visible message ID
   const handleLoadMore = () => {
     if (messages.length > 0) {
@@ -207,16 +207,17 @@ export function MessageList({
     onLoadMore?.();
   };
 
-  // After messages are prepended, scroll the anchor element back into view
+  // After messages are prepended, scroll the anchor element back into view.
+  // Uses the anchor ID (set before loading) rather than a length comparison,
+  // because a capped prepend can swap messages without changing total count.
   useEffect(() => {
-    if (anchorIdRef.current && messages.length > prevMessageCountRef.current) {
+    if (anchorIdRef.current) {
       const el = document.getElementById(`msg-${anchorIdRef.current}`);
       if (el) {
         el.scrollIntoView({ block: 'start' });
       }
       anchorIdRef.current = null;
     }
-    prevMessageCountRef.current = messages.length;
   }, [messages]);
 
   if (messages.length === 0 && !isStreaming) {
@@ -317,6 +318,7 @@ export function MessageList({
             toolUses={toolUses}
             toolResults={toolResults}
             streamingToolOutput={streamingToolOutput}
+            thinkingContent={streamingThinkingContent}
             statusText={statusText}
             onForceStop={onForceStop}
           />

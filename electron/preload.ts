@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     start: () => ipcRenderer.invoke('install:start'),
     cancel: () => ipcRenderer.invoke('install:cancel'),
     getLogs: () => ipcRenderer.invoke('install:get-logs'),
+    installGit: () => ipcRenderer.invoke('install:git'),
     onProgress: (callback: (data: unknown) => void) => {
       const listener = (_event: unknown, data: unknown) => callback(data);
       ipcRenderer.on('install:progress', listener);
@@ -28,6 +29,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   bridge: {
     isActive: () => ipcRenderer.invoke('bridge:is-active'),
+  },
+  proxy: {
+    resolve: (url: string) => ipcRenderer.invoke('proxy:resolve', url),
+  },
+  widget: {
+    exportPng: (html: string, width: number, isDark: boolean) =>
+      ipcRenderer.invoke('widget:export-png', { html, width, isDark }),
   },
   terminal: {
     create: (opts: { id: string; cwd: string; cols: number; rows: number }) =>

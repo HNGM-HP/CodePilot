@@ -382,6 +382,12 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('permission_profile')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN permission_profile TEXT NOT NULL DEFAULT 'default'");
   }
+  if (!colNames.includes('context_summary')) {
+    safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN context_summary TEXT NOT NULL DEFAULT ''");
+  }
+  if (!colNames.includes('context_summary_updated_at')) {
+    safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN context_summary_updated_at TEXT NOT NULL DEFAULT ''");
+  }
   db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_runtime_status ON chat_sessions(runtime_status)");
 
   // Migrate is_active provider to default_provider_id setting
@@ -891,6 +897,11 @@ function migrateDb(db: Database.Database): void {
   // Migration: add permanent column for existing databases
   safeAddColumn(db, "ALTER TABLE scheduled_tasks ADD COLUMN permanent INTEGER NOT NULL DEFAULT 0");
 
+  // Migration: set default_panel to 'file_tree' only if not already configured
+  db.prepare(
+    "INSERT OR IGNORE INTO settings (key, value) VALUES ('default_panel', 'file_tree')"
+  ).run();
+
   // Task execution history
   db.exec(`
     CREATE TABLE IF NOT EXISTS task_run_logs (
@@ -929,6 +940,25 @@ export function getActiveSessions(): ChatSession[] {
 export function getSession(id: string): ChatSession | undefined {
   const db = getDb();
   return db.prepare('SELECT * FROM chat_sessions WHERE id = ?').get(id) as ChatSession | undefined;
+}
+
+export function getSessionSummary(sessionId: string): { summary: string; updatedAt: string } {
+  const db = getDb();
+  const row = db.prepare(
+    'SELECT context_summary, context_summary_updated_at FROM chat_sessions WHERE id = ?'
+  ).get(sessionId) as { context_summary: string; context_summary_updated_at: string } | undefined;
+  return {
+    summary: row?.context_summary || '',
+    updatedAt: row?.context_summary_updated_at || '',
+  };
+}
+
+export function updateSessionSummary(sessionId: string, summary: string): void {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare(
+    'UPDATE chat_sessions SET context_summary = ?, context_summary_updated_at = ? WHERE id = ?'
+  ).run(summary, now, sessionId);
 }
 
 export function createSession(
