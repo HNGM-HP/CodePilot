@@ -460,7 +460,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
       />
       
       <aside
-        className="flex h-full shrink-0 flex-col overflow-hidden bg-sidebar/80 backdrop-blur-xl fixed inset-y-0 left-14 z-50 shadow-xl lg:static lg:left-0 lg:shadow-none"
+        className="flex h-full shrink-0 flex-col overflow-hidden bg-sidebar/80 backdrop-blur-xl fixed inset-y-0 left-0 z-50 shadow-xl lg:static lg:shadow-none"
         style={{ width: width ?? 240 }}
       >
         {/* Mobile header with close button */}
