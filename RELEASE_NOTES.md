@@ -1,32 +1,39 @@
-## CodePilot v0.46.0
+## CodePilot v0.48.0
 
-> 新增 Ollama 本地模型支持，优化工具调用展示和推理内容（Thinking）的显示与保留。
+> 全新 Agent 引擎架构：无需安装 Claude Code CLI 即可完整使用，同时支持 OpenAI 授权登录。
 
 ### 新增功能
 
-- 新增 Ollama 服务商预设：一键接入本地模型，无需 API 密钥
-- 新增推理内容（Thinking）流式展示：支持实时查看模型的推理过程
-- 工具调用展示全面重构：分组折叠、状态指示、运行中工具实时输出
-
-### 修复问题
-
-- 修复中断或出错时已展示的推理内容（Thinking）在完成态消失的问题
-- 修复远程桥接（Telegram/Discord/飞书）静默丢弃推理内容的问题
-- 修复未注册工具（MCP 工具、插件工具等）在操作列表中不显示名称的问题
-- 修复 auth_token 认证方式未显式清空 API Key 导致部分服务商连接失败的问题
+- 双 Agent 引擎可选：AI SDK 引擎（开箱即用，支持多服务商）和 Claude Code 引擎（通过 CLI 驱动，完整命令行能力），可在设置中自由切换
+- OpenAI 授权登录：ChatGPT Plus/Pro 用户可在服务商设置中通过 OAuth 登录，直接使用 GPT-5.4、GPT-5.4-Mini、GPT-5.3-Codex 等模型
+- 输入框下方新增 Agent 引擎状态标记，显示当前实际使用的引擎，hover 可查看详情并跳转设置
+- 首次打开自动检测系统语言，中文系统自动切换为中文界面
 
 ### 优化改进
 
-- 服务商文档新增 Ollama 配置指南（中英双语）
+- 首次设置引导优化：Claude Code CLI 标记为"可选"，新用户无需安装 CLI 即可开始使用
+- 内置工具全量注册：通知、素材管理、仪表盘、记忆搜索、CLI 工具管理等 29 个工具始终可用，不再依赖关键词触发
+- 内置工具（codepilot_* 系列）跳过权限审批，减少不必要的确认弹窗
+- 系统提示词全面升级：参考 Claude Code 和 OpenCode 的提示词体系，提升代码生成质量
+- MCP 工具完整支持：外部 MCP 服务器的工具在 AI SDK 引擎下也能正常使用
+- 错误监控扩展：新增 Native 引擎专属错误类别和 Sentry 上报，便于问题定位
+
+### 修复问题
+
+- 修复了文件回退（Rewind）可能丢失会话前未提交修改的问题
+- 修复了中断对话在 Claude Code 引擎下不生效的问题
+- 修复了带附件消息在多轮对话中丢失的问题
+- 修复了 OpenAI OAuth 登录成功页在 token 交换失败时仍显示成功的问题
+- 修复了 OAuth callback 服务器监听所有网卡的安全问题，改为仅监听 localhost
 
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.46.0/CodePilot-0.46.0-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.46.0/CodePilot-0.46.0-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.48.0/CodePilot-0.48.0-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.48.0/CodePilot-0.48.0-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.46.0/CodePilot.Setup.0.46.0.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.48.0/CodePilot.Setup.0.48.0.exe)
 
 ## 安装说明
 
@@ -36,5 +43,5 @@
 ## 系统要求
 
 - macOS 12.0+ / Windows 10+ / Linux (glibc 2.31+)
-- 需要配置 API 服务商（Anthropic / OpenRouter / Ollama 等）
-- 推荐安装 Claude Code CLI 以获得完整功能
+- 需要配置 API 服务商（Anthropic / OpenRouter / OpenAI 等）
+- 可选安装 Claude Code CLI 以获得完整命令行能力
