@@ -728,20 +728,27 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     // from the much larger online-inference Model ID space served by
     // Ark — never auto-probe that endpoint for a Coding Plan provider
     // (handled by the Coding/Token Plan gate in model-discovery.ts).
-    // The eight standard SKUs cover the Doubao + cross-vendor lineup;
+    // The standard SKUs cover the Doubao + cross-vendor lineup;
     // `ark-code-latest` is a special console-managed entry where the
     // actual model is selected by Volcengine's Ark console (Auto mode)
     // — flagged in the displayName so users know it's not a stable
     // pinned model.
+    //
+    // 2026-06-09 refresh (源: https://www.volcengine.com/docs/82379/1925114):
+    // 下架 4 个标注「即将下线」的 SKU（minimax-m2.5 / glm-4.7 / deepseek-v3.2 /
+    // kimi-k2.5）；按文档新增 6 个 SKU。Doubao 四模型补充 vision 能力标注。
+    // 所有 modelId 统一 lowercase-kebab（Coding Plan API 实际接受的标识符格式）。
     defaultModels: [
-      { modelId: 'doubao-seed-2.0-code', displayName: 'Doubao Seed 2.0 Code', role: 'default' },
-      { modelId: 'doubao-seed-2.0-pro', displayName: 'Doubao Seed 2.0 Pro' },
-      { modelId: 'doubao-seed-2.0-lite', displayName: 'Doubao Seed 2.0 Lite' },
-      { modelId: 'doubao-seed-code', displayName: 'Doubao Seed Code' },
-      { modelId: 'minimax-m2.5', displayName: 'MiniMax M2.5' },
-      { modelId: 'glm-4.7', displayName: 'GLM-4.7' },
-      { modelId: 'deepseek-v3.2', displayName: 'DeepSeek V3.2' },
-      { modelId: 'kimi-k2.5', displayName: 'Kimi K2.5' },
+      { modelId: 'doubao-seed-2.0-code', displayName: 'Doubao Seed 2.0 Code', role: 'default', capabilities: { vision: true } },
+      { modelId: 'doubao-seed-2.0-pro', displayName: 'Doubao Seed 2.0 Pro', capabilities: { vision: true } },
+      { modelId: 'doubao-seed-2.0-lite', displayName: 'Doubao Seed 2.0 Lite', capabilities: { vision: true } },
+      { modelId: 'doubao-seed-code', displayName: 'Doubao Seed Code', capabilities: { vision: true } },
+      { modelId: 'minimax-m2.7', displayName: 'MiniMax-M2.7', capabilities: { contextWindow: 200_000 } },
+      { modelId: 'minimax-m3', displayName: 'MiniMax-M3', capabilities: { contextWindow: 512_000 } },
+      { modelId: 'kimi-k2.6', displayName: 'Kimi-K2.6', capabilities: { vision: true, contextWindow: 256_000 } },
+      { modelId: 'glm-5.2', displayName: 'GLM-5.2', capabilities: { contextWindow: 200_000 } },
+      { modelId: 'deepseek-v4-flash', displayName: 'DeepSeek-V4-Flash', capabilities: { reasoning: true, contextWindow: 1_024_000 } },
+      { modelId: 'deepseek-v4-pro', displayName: 'DeepSeek-V4-Pro', capabilities: { reasoning: true, contextWindow: 1_024_000 } },
       { modelId: 'ark-code-latest', displayName: 'ark-code-latest (Console-managed / Auto)' },
     ],
     fields: ['api_key', 'model_names'],
