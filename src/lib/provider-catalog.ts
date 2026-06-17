@@ -746,7 +746,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       { modelId: 'minimax-m2.7', displayName: 'MiniMax-M2.7', capabilities: { contextWindow: 200_000 } },
       { modelId: 'minimax-m3', displayName: 'MiniMax-M3', capabilities: { contextWindow: 512_000 } },
       { modelId: 'kimi-k2.6', displayName: 'Kimi-K2.6', capabilities: { vision: true, contextWindow: 256_000 } },
-      { modelId: 'glm-5.2', displayName: 'GLM-5.2', capabilities: { contextWindow: 200_000 } },
+      { modelId: 'glm-5.2', displayName: 'GLM-5.2', capabilities: { contextWindow: 1_024_000 } },
       { modelId: 'deepseek-v4-flash', displayName: 'DeepSeek-V4-Flash', capabilities: { reasoning: true, contextWindow: 1_024_000 } },
       { modelId: 'deepseek-v4-pro', displayName: 'DeepSeek-V4-Pro', capabilities: { reasoning: true, contextWindow: 1_024_000 } },
       { modelId: 'ark-code-latest', displayName: 'ark-code-latest (Console-managed / Auto)' },
